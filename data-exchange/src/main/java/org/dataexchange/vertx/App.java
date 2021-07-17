@@ -17,6 +17,12 @@ public class App
 {
     public static void main( String[] args )
     {
+        JsonObject sampleData = new JsonObject();
+        sampleData.put("currentLevel", 0.57);
+        sampleData.put("id", "04a15c9960ffda227e9546f3f46e629e1fe4132b");
+        sampleData.put("observationDateTime", "2021-05-02T20:45:00+05:30");
+        sampleData.put("measuredDistance", 9.43);
+        sampleData.put("referenceLevel", 10.0);
         Vertx vertx = Vertx.vertx();
         HttpServer httpServer = vertx.createHttpServer();
 
@@ -28,26 +34,26 @@ public class App
                         ctx -> Future.succeededFuture(new JsonObject().put("here","1")));
         router
                 .get("/server/:id")
+                .produces("application/json")
                 .handler(ctx -> {
                     String id = ctx.request().getParam("id");
-            HttpServerResponse response = ctx.response();
-            response.setChunked(true);
-//            response.putHeader("content-type","text/plain");
-            response.write("Read data instance with id: "+id+"\n\n");
+                    HttpServerResponse response = ctx.response();
+                    response.setChunked(true);
+                    if(id.equals(sampleData.getString("id")))
+                        response.write(String.valueOf(sampleData));
+                    else
+                        response.write("Data instance with id: "+id+" NOT FOUND\n\n");
             ctx.response().end();
-//            ctx.vertx().setTimer(5000, tid -> ctx.next());
         });
 
         router
                 .post("/server")
                 .consumes("*/json")
                 .handler(ctx -> {
-//                    String id = ctx.request().getParam("id");
             HttpServerResponse response = ctx.response();
             response.setChunked(true);
             response.write("Created new data instance with id: \n\n");
             ctx.response().end();
-//            ctx.vertx().setTimer(5000, tid -> ctx.next());
         });
 
         router
@@ -68,7 +74,6 @@ public class App
             HttpServerResponse response = ctx.response();
             response.setChunked(true);
             response.write("Data instance with id: "+id+" deleted\n\n");
-//            ctx.vertx().setTimer(5000, tid -> ctx.next());
             ctx.response().end();
         });
 
