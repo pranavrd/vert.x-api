@@ -6,6 +6,7 @@ package org.dataexchange.vertx;
  */
 
 import io.vertx.core.Future;
+import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpServer;
@@ -14,6 +15,7 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
+import  io.vertx.ext.mongo.MongoClient;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.SessionHandler;
@@ -24,24 +26,40 @@ public class App
     private JsonArray data;
     private String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
 
+    Vertx vertx = Vertx.vertx();
+    HttpServer httpServer = vertx.createHttpServer();
+
+    Router router = Router.router(vertx);
+
+    String uri = "mongodb://localhost:27017";
+    String db = "iot-data";
+
+    JsonObject mongoconfig = new JsonObject()
+      .put("connection_string", uri)
+      .put("db_name", db);
+
+    MongoClient mongoClient = MongoClient.create(vertx, mongoconfig);
+
     App() {
         data = new JsonArray();
     }
 
     public void getDataInstanceHandler(RoutingContext ctx){
         String id = ctx.request().getParam("id");
+        JsonObject query = new JsonObject()
+            .put("_id", id);
         HttpServerResponse response = ctx.response();
         if(id == null)
             response.setStatusCode(400).end("id Required");
-        boolean found = false;
-        for(int i = 0; i < data.size(); i++){
-            if(id.equals(data.getJsonObject(i).getString("id"))) {
-                found = true;
-                ctx.response().end(String.valueOf(data.getJsonObject(i)));
-            }
-        }
-        if(!found)
-            response.setStatusCode(404).end("IoT data with matching id not found");
+        mongoClient.find("coll", query, res -> {
+           if(res.succeeded()){
+               for (JsonObject data : res.result()){
+                   ctx.response().end(data.encodePrettily());
+               }
+           } else {
+               response.setStatusCode(404).end("IoT data with matching id not found");
+           }
+        });
     }
 
     public void postDataInstanceHandler(RoutingContext ctx){
@@ -50,47 +68,60 @@ public class App
         if(newData == null)
             response.setStatusCode(400).end("request body required");
 
-        data.add(newData);
-        ctx.response().end("Created new data instance with id: "+newData.getString("id")+"\n\n");
+        mongoClient.insert("coll", newData, res -> {
+            if (res.succeeded()) {
+                System.out.println("Success");
+                ctx.response().end("Created new data instance with id: "+newData.getString("_id")+"\n\n");
+            } else {
+                res.cause().printStackTrace();
+               response.setStatusCode(409).end("Object already exists");
+            }
+        });
     }
 
-    // FIXME: performs a post instead of put
     public void putDataInstanceHandler(RoutingContext ctx){
         String id = ctx.request().getParam("id");
+        JsonObject query = new JsonObject()
+            .put("_id", id);
         HttpServerResponse response = ctx.response();
         if(id == null)
             response.setStatusCode(400).end("id Required");
 
         JsonObject updateData = ctx.getBodyAsJson();
+        JsonObject update = new JsonObject().put("$set", updateData);
         if(updateData == null)
             response.setStatusCode(400).end("request body required");
 
-        data.add(updateData);
-        ctx.response().end("Data instance with id: "+id+" updated\n\n");
+        mongoClient.updateCollection("coll", query, update, res -> {
+            if (res.succeeded()) {
+                System.out.println("Success");
+                ctx.response().end("Updated data instance with id: "+updateData.getString("_id")+"\n\n");
+            } else {
+                res.cause().printStackTrace();
+                response.setStatusCode(500).end("Something went wrong");
+            }
+        });
     }
 
+    // FIXME: showing delete successful even on non-occurance of delete i.e. res.succeeded() is always returning true
     public void deleteDataInstanceHandler(RoutingContext ctx){
         String id = ctx.request().getParam("id");
+        JsonObject query = new JsonObject()
+            .put("_id", id);
         HttpServerResponse response = ctx.response();
         if(id == null)
             response.setStatusCode(400).end("id Required");
-        boolean found = false;
-        for(int i = 0; i < data.size(); i++) {
-            if (id.equals(data.getJsonObject(i).getString("id"))) {
-                found = true;
-                data.remove(data.getJsonObject(i));
+
+        mongoClient.findOneAndDelete("coll", query, res -> {
+           if(res.succeeded()){
                 ctx.response().end("Data instance with id: " + id + " deleted\n\n");
-            }
-        }
-        if(!found)
+           } else {
             response.setStatusCode(404).end("IoT data with matching id can't be deleted or does not exist");
+           }
+        });
     }
 
     public void serverStart(){
-        Vertx vertx = Vertx.vertx();
-        HttpServer httpServer = vertx.createHttpServer();
-
-        Router router = Router.router(vertx);
 
         // BodyHandler added to router to ensure http request body gets parsed... otherwise ctx.request.getBodyAsJson() will always return null
         router.route().handler(BodyHandler.create());
