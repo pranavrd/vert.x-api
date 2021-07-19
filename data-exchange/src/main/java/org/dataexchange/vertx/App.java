@@ -1,18 +1,11 @@
 package org.dataexchange.vertx;
 
-/**
- * Hello world!
- *
- */
-
-import io.vertx.core.Future;
-import io.vertx.core.Handler;
-import io.vertx.core.Vertx;
+import io.vertx.core.*;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerResponse;
-import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.AbstractVerticle;
 import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
 import  io.vertx.ext.mongo.MongoClient;
@@ -21,28 +14,11 @@ import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.SessionHandler;
 import io.vertx.ext.web.sstore.LocalSessionStore;
 
-public class App
+public class App extends AbstractVerticle
 {
-    private JsonArray data;
-    private String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
+    private final String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
 
-    Vertx vertx = Vertx.vertx();
-    HttpServer httpServer = vertx.createHttpServer();
-
-    Router router = Router.router(vertx);
-
-    String uri = "mongodb://localhost:27017";
-    String db = "iot-data";
-
-    JsonObject mongoconfig = new JsonObject()
-      .put("connection_string", uri)
-      .put("db_name", db);
-
-    MongoClient mongoClient = MongoClient.create(vertx, mongoconfig);
-
-    App() {
-        data = new JsonArray();
-    }
+    private MongoClient mongoClient;
 
     public void getDataInstanceHandler(RoutingContext ctx){
         String id = ctx.request().getParam("id");
@@ -52,7 +28,7 @@ public class App
         if(id == null)
             response.setStatusCode(400).end("id Required");
         mongoClient.find("coll", query, res -> {
-           if(res.succeeded()){
+           if(res.succeeded() && res.result().size() > 0){
                for (JsonObject data : res.result()){
                    ctx.response().end(data.encodePrettily());
                }
@@ -103,7 +79,6 @@ public class App
         });
     }
 
-    // FIXME: showing delete successful even on non-occurance of delete i.e. res.succeeded() is always returning true
     public void deleteDataInstanceHandler(RoutingContext ctx){
         String id = ctx.request().getParam("id");
         JsonObject query = new JsonObject()
@@ -113,7 +88,7 @@ public class App
             response.setStatusCode(400).end("id Required");
 
         mongoClient.findOneAndDelete("coll", query, res -> {
-           if(res.succeeded()){
+           if(res.succeeded() && res.result()!=null){
                 ctx.response().end("Data instance with id: " + id + " deleted\n\n");
            } else {
             response.setStatusCode(404).end("IoT data with matching id can't be deleted or does not exist");
@@ -121,7 +96,9 @@ public class App
         });
     }
 
-    public void serverStart(){
+    private Future<Void> serverStart(){
+        Promise<Void> promise = Promise.promise();
+        Router router = Router.router(vertx);
 
         // BodyHandler added to router to ensure http request body gets parsed... otherwise ctx.request.getBodyAsJson() will always return null
         router.route().handler(BodyHandler.create());
@@ -170,23 +147,35 @@ public class App
                 .delete("/server/:id")
                 .handler(this::deleteDataInstanceHandler);
 
-        httpServer
+        vertx.createHttpServer()
                 .requestHandler(router)
                 .listen(8881);
 
+        return promise.future();
     }
 
     public static void main( String[] args )
     {
-        App appInstance = new App();
-        appInstance.data
-                .add(new JsonObject()
-                    .put("currentLevel", 0.57)
-                    .put("id", "04a15c9960ffda227e9546f3f46e629e1fe4132b")
-                    .put("observationDateTime", "2021-05-02T20:45:00+05:30")
-                    .put("measuredDistance", 9.43)
-                    .put("referenceLevel", 10.0)
-                );
-        appInstance.serverStart();
+//        Runner.runExample(App.class);
+        Vertx.vertx().deployVerticle(new App());
+    }
+
+    private Future<Void> connectMongoDatabase() {
+        Promise<Void> promise = Promise.promise();
+        final String uri = "mongodb://localhost:27017";
+        final String db = "iot-data";
+
+        final JsonObject mongoconfig = new JsonObject()
+          .put("connection_string", uri)
+          .put("db_name", db);
+
+        mongoClient = MongoClient.create(vertx, mongoconfig);
+        return promise.future();
+    }
+
+    @Override
+    public void start(Promise<Void> promise) throws Exception {
+        Future<Void> pipeline = connectMongoDatabase().compose(v -> serverStart());
+        pipeline.onComplete(promise);
     }
 }
