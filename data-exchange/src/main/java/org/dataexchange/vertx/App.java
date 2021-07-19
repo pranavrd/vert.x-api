@@ -17,7 +17,6 @@ import io.vertx.ext.web.sstore.LocalSessionStore;
 public class App extends AbstractVerticle
 {
     private final String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
-
     private MongoClient mongoClient;
 
     public void getDataInstanceHandler(RoutingContext ctx){
@@ -127,7 +126,6 @@ public class App extends AbstractVerticle
 //          );
 //        });
 
-
         router
                 .get("/server/:id")
                 .produces("application/json")
@@ -156,7 +154,6 @@ public class App extends AbstractVerticle
 
     public static void main( String[] args )
     {
-//        Runner.runExample(App.class);
         Vertx.vertx().deployVerticle(new App());
     }
 
@@ -175,7 +172,10 @@ public class App extends AbstractVerticle
 
     @Override
     public void start(Promise<Void> promise) throws Exception {
-        Future<Void> pipeline = connectMongoDatabase().compose(v -> serverStart());
-        pipeline.onComplete(promise);
+        // FIXME: future and promise async not working as expected
+        connectMongoDatabase();
+        serverStart();
+//        Future<Void> pipeline = connectMongoDatabase().compose(v -> serverStart());
+//        pipeline.onComplete(promise);
     }
 }
