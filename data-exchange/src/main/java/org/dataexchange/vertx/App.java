@@ -2,13 +2,12 @@ package org.dataexchange.vertx;
 
 import io.vertx.core.*;
 import io.vertx.core.http.HttpHeaders;
-import io.vertx.core.http.HttpServer;
 import io.vertx.core.http.HttpServerResponse;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
-import  io.vertx.ext.mongo.MongoClient;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.SessionHandler;
@@ -17,7 +16,6 @@ import io.vertx.ext.web.sstore.LocalSessionStore;
 public class App extends AbstractVerticle
 {
     private final String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
-    private MongoClient mongoClient;
 
     public void getDataInstanceHandler(RoutingContext ctx){
         String id = ctx.request().getParam("id");
@@ -26,14 +24,14 @@ public class App extends AbstractVerticle
         HttpServerResponse response = ctx.response();
         if(id == null)
             response.setStatusCode(400).end("id Required");
-        mongoClient.find("coll", query, res -> {
-           if(res.succeeded() && res.result().size() > 0){
-               for (JsonObject data : res.result()){
-                   ctx.response().end(data.encodePrettily());
-               }
-           } else {
-               response.setStatusCode(404).end("IoT data with matching id not found");
-           }
+
+        vertx.eventBus().request("get.data.addr", query, reply -> {
+            if(reply.result().body() instanceof JsonObject){
+                JsonObject data = (JsonObject) reply.result().body();
+                ctx.response().end(data.encodePrettily());
+            } else {
+                response.setStatusCode(404).end("IoT data with matching id not found");
+            }
         });
     }
 
@@ -43,12 +41,10 @@ public class App extends AbstractVerticle
         if(newData == null)
             response.setStatusCode(400).end("request body required");
 
-        mongoClient.insert("coll", newData, res -> {
-            if (res.succeeded()) {
-                System.out.println("Success");
+        vertx.eventBus().request("post.data.addr", newData, reply -> {
+            if("success".equals(reply.result().body())) {
                 ctx.response().end("Created new data instance with id: "+newData.getString("_id")+"\n\n");
             } else {
-                res.cause().printStackTrace();
                response.setStatusCode(409).end("Object already exists");
             }
         });
@@ -67,12 +63,14 @@ public class App extends AbstractVerticle
         if(updateData == null)
             response.setStatusCode(400).end("request body required");
 
-        mongoClient.updateCollection("coll", query, update, res -> {
-            if (res.succeeded()) {
-                System.out.println("Success");
+        JsonArray messageArray = new JsonArray()
+                .add(0,query)
+                .add(1, update);
+
+        vertx.eventBus().request("put.data.addr", messageArray, reply -> {
+            if("success".equals(reply.result().body())) {
                 ctx.response().end("Updated data instance with id: "+updateData.getString("_id")+"\n\n");
             } else {
-                res.cause().printStackTrace();
                 response.setStatusCode(500).end("Something went wrong");
             }
         });
@@ -86,13 +84,14 @@ public class App extends AbstractVerticle
         if(id == null)
             response.setStatusCode(400).end("id Required");
 
-        mongoClient.findOneAndDelete("coll", query, res -> {
-           if(res.succeeded() && res.result()!=null){
+        vertx.eventBus().request("delete.data.addr", query, reply ->{
+           if("success".equals(reply.result().body())){
                 ctx.response().end("Data instance with id: " + id + " deleted\n\n");
            } else {
             response.setStatusCode(404).end("IoT data with matching id can't be deleted or does not exist");
            }
         });
+
     }
 
     private Future<Void> serverStart(){
@@ -111,20 +110,6 @@ public class App extends AbstractVerticle
             else
                 ctx.response().setStatusCode(401).setStatusMessage("UNAUTHORIZED").end();
         });
-
-//        router.route("/").handler(routingContext -> {
-//          routingContext.response().putHeader("content-type", "text/html").end(
-//              "<form action=\"/server\" method=\"get\">\n" +
-//              "    <div>\n" +
-//              "        <label for=\"name\">Get IoT data based on id :</label>\n" +
-//              "        <input type=\"text\" id=\"id\" name=\"id\" />\n" +
-//              "    </div>\n" +
-//              "    <div class=\"button\">\n" +
-//              "        <button type=\"submit\">READ</button>\n" +
-//              "    </div>" +
-//              "</form>"
-//          );
-//        });
 
         router
                 .get("/server/:id")
@@ -157,25 +142,9 @@ public class App extends AbstractVerticle
         Vertx.vertx().deployVerticle(new App());
     }
 
-    private Future<Void> connectMongoDatabase() {
-        Promise<Void> promise = Promise.promise();
-        final String uri = "mongodb://localhost:27017";
-        final String db = "iot-data";
-
-        final JsonObject mongoconfig = new JsonObject()
-          .put("connection_string", uri)
-          .put("db_name", db);
-
-        mongoClient = MongoClient.create(vertx, mongoconfig);
-        return promise.future();
-    }
-
     @Override
     public void start(Promise<Void> promise) throws Exception {
-        // FIXME: future and promise async not working as expected
-        connectMongoDatabase();
+        vertx.deployVerticle(new MongoDbVerticle());
         serverStart();
-//        Future<Void> pipeline = connectMongoDatabase().compose(v -> serverStart());
-//        pipeline.onComplete(promise);
     }
 }
