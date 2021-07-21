@@ -26,7 +26,7 @@ public class MongoDbVerticle extends AbstractVerticle {
     private void postDataInstanceHandler(Message msg) {
         mongoClient.insert("coll", (JsonObject) msg.body(), res -> {
             if (res.succeeded()) {
-                msg.reply("success");
+                msg.reply(res.result());
             } else {
                 msg.reply("failure");
                 res.cause().printStackTrace();

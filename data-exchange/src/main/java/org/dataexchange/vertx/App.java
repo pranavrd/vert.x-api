@@ -13,17 +13,22 @@ import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.SessionHandler;
 import io.vertx.ext.web.sstore.LocalSessionStore;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+
 public class App extends AbstractVerticle
 {
     private final String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
+    HttpServerResponse response;
 
     public void getDataInstanceHandler(RoutingContext ctx){
-        String id = ctx.request().getParam("id");
+        response = ctx.response();
         JsonObject query = new JsonObject()
-            .put("_id", id);
-        HttpServerResponse response = ctx.response();
-        if(id == null)
+            .put("_id", ctx.request().getParam("id"));
+        if(query.getString("_id") == null) {
             response.setStatusCode(400).end("id Required");
+            return;
+        }
 
         vertx.eventBus().request("get.data.addr", query, reply -> {
             if(reply.result().body() instanceof JsonObject){
@@ -36,14 +41,25 @@ public class App extends AbstractVerticle
     }
 
     public void postDataInstanceHandler(RoutingContext ctx){
+        response = ctx.response();
         JsonObject newData = ctx.getBodyAsJson();
-        HttpServerResponse response = ctx.response();
-        if(newData == null)
+        if(newData == null) {
             response.setStatusCode(400).end("request body required");
+            return;
+        } else {
+            if(LocalDateTime.parse(newData.getString("observationDateTime"), DateTimeFormatter.ISO_DATE_TIME).isAfter(LocalDateTime.now())) {
+                response.setStatusCode(400).end("observation date, time cannot be in the future");
+                return;
+            }
+            if(newData.getDouble("currentLevel") < 0 || newData.getDouble("referenceLevel") < 0 || newData.getDouble("measuredDistance") < 0) {
+                response.setStatusCode(400).end("current/reference levels or measured distance cannot be negative values");
+                return;
+            }
+        }
 
         vertx.eventBus().request("post.data.addr", newData, reply -> {
-            if("success".equals(reply.result().body())) {
-                ctx.response().end("Created new data instance with id: "+newData.getString("_id")+"\n\n");
+            if(!("failure".equals(reply.result().body()))) {
+                ctx.response().end("Created new data instance with id: "+reply.result().body()+"\n\n");
             } else {
                response.setStatusCode(409).end("Object already exists");
             }
@@ -51,17 +67,28 @@ public class App extends AbstractVerticle
     }
 
     public void putDataInstanceHandler(RoutingContext ctx){
-        String id = ctx.request().getParam("id");
         JsonObject query = new JsonObject()
-            .put("_id", id);
-        HttpServerResponse response = ctx.response();
-        if(id == null)
+            .put("_id", ctx.request().getParam("id"));
+        response = ctx.response();
+        if(query.getString("_id") == null) {
             response.setStatusCode(400).end("id Required");
+            return;
+        }
 
-        JsonObject updateData = ctx.getBodyAsJson();
-        JsonObject update = new JsonObject().put("$set", updateData);
-        if(updateData == null)
+        JsonObject update = new JsonObject().put("$set", ctx.getBodyAsJson());
+        if(update == null) {
             response.setStatusCode(400).end("request body required");
+            return;
+        } else {
+            if(LocalDateTime.parse(update.getString("observationDateTime"), DateTimeFormatter.ISO_DATE_TIME).isAfter(LocalDateTime.now())) {
+                response.setStatusCode(400).end("observation date/time cannot be in the future");
+                return;
+            }
+            if(update.getDouble("currentLevel") < 0 || update.getDouble("referenceLevel") < 0 || update.getDouble("measuredDistance") < 0) {
+                response.setStatusCode(400).end("current/reference levels or measured distance cannot be negative values");
+                return;
+            }
+        }
 
         JsonArray messageArray = new JsonArray()
                 .add(0,query)
@@ -69,7 +96,7 @@ public class App extends AbstractVerticle
 
         vertx.eventBus().request("put.data.addr", messageArray, reply -> {
             if("success".equals(reply.result().body())) {
-                ctx.response().end("Updated data instance with id: "+updateData.getString("_id")+"\n\n");
+                ctx.response().end("Updated data instance with id: " + query.getString("_id")+"\n\n");
             } else {
                 response.setStatusCode(500).end("Something went wrong");
             }
@@ -77,16 +104,16 @@ public class App extends AbstractVerticle
     }
 
     public void deleteDataInstanceHandler(RoutingContext ctx){
-        String id = ctx.request().getParam("id");
         JsonObject query = new JsonObject()
-            .put("_id", id);
-        HttpServerResponse response = ctx.response();
-        if(id == null)
+            .put("_id", ctx.request().getParam("id"));
+        response = ctx.response();
+        if(query.getString("_id") == null) {
             response.setStatusCode(400).end("id Required");
-
+            return;
+        }
         vertx.eventBus().request("delete.data.addr", query, reply ->{
            if("success".equals(reply.result().body())){
-                ctx.response().end("Data instance with id: " + id + " deleted\n\n");
+                ctx.response().end("Data instance with id: " + query.getString("_id") + " deleted\n\n");
            } else {
             response.setStatusCode(404).end("IoT data with matching id can't be deleted or does not exist");
            }
@@ -145,6 +172,7 @@ public class App extends AbstractVerticle
     @Override
     public void start(Promise<Void> promise) throws Exception {
         vertx.deployVerticle(new MongoDbVerticle());
-        serverStart();
+        Future<Void> ft = serverStart();
+        ft.onComplete(promise);
     }
 }
