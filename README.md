@@ -26,8 +26,9 @@ It also requires ``` currentLevel```, ```observationDateTime```, 	```measuredDis
 
  1. Clone [this](https://github.com/pranavrd/vert.x-api.git) repo 
  2. Run mongo and execute following steps :
-	 i. ```use iot-data```
-	 ii. ```db.coll.insert(sample_data)```  //*sample_data should be in json*
-	 If you don't have mongo, you can install it from the [official page](https://www.mongodb.com/try/download/community)
+	i. ```use iot-data```
+	ii. ```db.coll.insert(sample_data)```  //*sample_data should be in json*
+	If you don't have mongo, you can install it from the [official page](https://www.mongodb.com/try/download/community)
+	
 3. Run the ```com.dataexchange.vertx.App``` instance in an IDE of your choice
-4. Make calls to the endpoints from postman. [Here](https://www.getpostman.com/collections/a6d7d9bf8d17807b8165)'s a sample collection to get you started
+4. Make calls to the endpoints from postman. [Here](https://www.getpostman.com/collections/a6d7d9bf8d17807b8165)'s a sample collection which can be imported in Postman.
