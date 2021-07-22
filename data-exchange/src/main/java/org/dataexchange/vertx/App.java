@@ -1,12 +1,10 @@
 package org.dataexchange.vertx;
 
 import io.vertx.core.*;
-import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.AbstractVerticle;
-import io.vertx.ext.web.Route;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
@@ -21,7 +19,7 @@ public class App extends AbstractVerticle
     private final String Secret = "NPd6Q176avia-6oPbJ_jUITPrNEMTOEfUd7PYxZkSrY";
     HttpServerResponse response;
 
-    public void getDataInstanceHandler(RoutingContext ctx){
+    private void getDataInstanceHandler(RoutingContext ctx){
         response = ctx.response();
         JsonObject query = new JsonObject()
             .put("_id", ctx.request().getParam("id"));
@@ -40,7 +38,7 @@ public class App extends AbstractVerticle
         });
     }
 
-    public void postDataInstanceHandler(RoutingContext ctx){
+    private void postDataInstanceHandler(RoutingContext ctx){
         response = ctx.response();
         JsonObject newData = ctx.getBodyAsJson();
         if(newData == null) {
@@ -58,15 +56,19 @@ public class App extends AbstractVerticle
         }
 
         vertx.eventBus().request("post.data.addr", newData, reply -> {
-            if(!("failure".equals(reply.result().body()))) {
+            if(reply.result().body()!=null && !("failure".equals(reply.result().body()))) {
                 ctx.response().end("Created new data instance with id: "+reply.result().body()+"\n\n");
-            } else {
+            }
+            else if(reply.result().body() == null) {
+                ctx.response().end("Created new data instance with id: "+newData.getString("_id")+"\n\n");
+            }
+            else {
                response.setStatusCode(409).end("Object already exists");
             }
         });
     }
 
-    public void putDataInstanceHandler(RoutingContext ctx){
+    private void putDataInstanceHandler(RoutingContext ctx){
         JsonObject query = new JsonObject()
             .put("_id", ctx.request().getParam("id"));
         response = ctx.response();
@@ -75,16 +77,17 @@ public class App extends AbstractVerticle
             return;
         }
 
-        JsonObject update = new JsonObject().put("$set", ctx.getBodyAsJson());
+        JsonObject requestBody = ctx.getBodyAsJson();
+        JsonObject update = new JsonObject().put("$set", requestBody);
         if(update == null) {
             response.setStatusCode(400).end("request body required");
             return;
         } else {
-            if(LocalDateTime.parse(update.getString("observationDateTime"), DateTimeFormatter.ISO_DATE_TIME).isAfter(LocalDateTime.now())) {
+            if(LocalDateTime.parse(requestBody.getString("observationDateTime"), DateTimeFormatter.ISO_DATE_TIME).isAfter(LocalDateTime.now())) {
                 response.setStatusCode(400).end("observation date/time cannot be in the future");
                 return;
             }
-            if(update.getDouble("currentLevel") < 0 || update.getDouble("referenceLevel") < 0 || update.getDouble("measuredDistance") < 0) {
+            if(requestBody.getDouble("currentLevel") < 0 || requestBody.getDouble("referenceLevel") < 0 || requestBody.getDouble("measuredDistance") < 0) {
                 response.setStatusCode(400).end("current/reference levels or measured distance cannot be negative values");
                 return;
             }
@@ -103,7 +106,7 @@ public class App extends AbstractVerticle
         });
     }
 
-    public void deleteDataInstanceHandler(RoutingContext ctx){
+    private void deleteDataInstanceHandler(RoutingContext ctx){
         JsonObject query = new JsonObject()
             .put("_id", ctx.request().getParam("id"));
         response = ctx.response();
